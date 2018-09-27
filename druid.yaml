@@ -1,0 +1,193 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: imply-druid-cluster-svc
+  labels:
+    app: imply-druid-cluster
+spec:
+  ports:
+  - name: pivot
+    port: 9095
+    protocol: TCP
+    targetPort: 9095
+  externalTrafficPolicy: Cluster
+  selector:
+    app: imply-druid-cluster
+  sessionAffinity: None
+  type: LoadBalancer
+---
+apiVersion: "extensions/v1beta1"
+kind: "Deployment"
+metadata:
+  name: "imply-druid-cluster"
+  namespace: "default"
+  labels:
+    app: "imply-druid-cluster"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "imply-druid-cluster"
+  template:
+    metadata:
+      labels:
+        app: "imply-druid-cluster"
+    spec:
+      containers:
+      - name: "cloudsql-proxy"
+        image: "gcr.io/cloudsql-docker/gce-proxy:1.11"
+        imagePullPolicy: Always
+        command: 
+        - "/cloud_sql_proxy"
+        args: 
+        - "-instances=gcp-sky-analytics-poc:europe-west2:druid=tcp:5432"
+        - "-credential_file=/secrets/cloudsql/credentials.json"
+        securityContext:
+          runAsUser: 2  # non-root user
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: "cloudsql-instance-credentials"
+          mountPath: "/secrets/cloudsql"
+          readOnly: true
+      - name: "imply-cluster-broker"
+        image: "tmi15/imply-cluster:2.7.5"
+        imagePullPolicy: Always
+        command:
+        - "/opt/imply/entrypoint.sh"
+        args: 
+        - "broker"
+        env:
+        - name: "POSTGRES_DB_HOST"
+          value: "127.0.0.1:5432"
+        - name: "POSTGRES_DB_USER"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "username"
+        - name: "POSTGRES_DB_PASSWORD"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "password"
+      - name: "imply-cluster-coordinator"
+        image: "tmi15/imply-cluster:2.7.5"
+        imagePullPolicy: Always
+        command:
+        - "/opt/imply/entrypoint.sh"
+        args: 
+        - "coordinator"
+        env:
+        - name: "POSTGRES_DB_HOST"
+          value: "127.0.0.1:5432"
+        - name: "POSTGRES_DB_USER"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "username"
+        - name: "POSTGRES_DB_PASSWORD"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "password"
+      - name: "imply-cluster-historical"
+        image: "tmi15/imply-cluster:2.7.5"
+        imagePullPolicy: Always
+        command:
+        - "/opt/imply/entrypoint.sh"
+        args: 
+        - "historical"
+        env:
+        - name: "POSTGRES_DB_HOST"
+          value: "127.0.0.1:5432"
+        - name: "POSTGRES_DB_USER"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "username"
+        - name: "POSTGRES_DB_PASSWORD"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "password"
+      - name: "imply-cluster-middlemanager"
+        image: "tmi15/imply-cluster:2.7.5"
+        imagePullPolicy: Always
+        command:
+        - "/opt/imply/entrypoint.sh"
+        args: 
+        - "middleManager"
+        env:
+        - name: "POSTGRES_DB_HOST"
+          value: "127.0.0.1:5432"
+        - name: "POSTGRES_DB_USER"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "username"
+        - name: "POSTGRES_DB_PASSWORD"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "password"
+      - name: "imply-cluster-overlord"
+        image: "tmi15/imply-cluster:2.7.5"
+        imagePullPolicy: Always
+        command:
+        - "/opt/imply/entrypoint.sh"
+        args: 
+        - "overlord"
+        env:
+        - name: "POSTGRES_DB_HOST"
+          value: "127.0.0.1:5432"
+        - name: "POSTGRES_DB_USER"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "username"
+        - name: "POSTGRES_DB_PASSWORD"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "password"
+      - name: "imply-cluster-ui"
+        image: "tmi15/imply-cluster:2.7.5"
+        imagePullPolicy: Always
+        command:
+        - "/opt/imply/bin/run-imply-ui"
+        args: 
+        - "/opt/imply/conf"
+        env:
+        - name: "POSTGRES_DB_HOST"
+          value: "127.0.0.1:5432"
+        - name: "POSTGRES_DB_USER"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "username"
+        - name: "POSTGRES_DB_PASSWORD"
+          valueFrom:
+            secretKeyRef:
+              name: "cloudsql-db-credentials"
+              key: "password"
+      volumes:
+        - name: "cloudsql-instance-credentials"
+          secret:
+            secretName: "cloudsql-instance-credentials"
+---
+apiVersion: "autoscaling/v1"
+kind: "HorizontalPodAutoscaler"
+metadata:
+  name: "imply-druid-cluster-hpa"
+  namespace: "default"
+  labels:
+    app: "imply-druid-cluster"
+spec:
+  scaleTargetRef:
+    kind: "Deployment"
+    name: "imply-druid-cluster"
+    apiVersion: "apps/v1beta1"
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+

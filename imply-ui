@@ -1,0 +1,24 @@
+#!/bin/bash
+
+PWD="$(pwd)"
+WHEREAMI="$(dirname "$0")"
+WHEREAMI="$(cd "$WHEREAMI" && pwd)"
+
+OS="`uname`"
+case $OS in
+  'Linux')
+    exec "$WHEREAMI"/linux/imply-ui-linux "$@"
+    ;;
+  'FreeBSD')
+    echo "FreeBSD is not supported"
+    ;;
+  'WindowsNT')
+    echo "Windows is not supported"
+    ;;
+  'Darwin')
+    exec "$WHEREAMI"/macos/imply-ui-macos "$@"
+    ;;
+  *)
+    echo "Your OS: $OS is not supported"
+    ;;
+esac
